@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - collada</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #000000;
+				margin: 0px;
+				overflow: hidden;
+			}
+			a {
+				color: #9aa7b8;
+			}
+			#infocontainer, #container {
+				width: 1280px ;
+				margin-left: auto ;
+				margin-right: auto ;
+			}
+			#container {
+				background-image: url( tex/biblio2.jpg );
+				background-repeat: no-repeat;
+				background-position: center;
+
+			}
+			#i {
+				z-index: 200;
+                position:absolute;
+                top: 860px;	
+                margin: 0px 10px;			
+			}
+            #info {
+            	display:none;
+                background-color: rgba( 19, 18, 13, .6 );
+                color: rgb(220, 215, 204);
+                padding: 20px 10px 60px 10px;
+                z-index: 100;
+                position:absolute;
+                top: 720px;
+            }
+            #info p{
+                margin-bottom: 10px;
+            }
+            #info p:last-child{
+                margin-bottom: 0;
+            }
+            #stats { 
+            	right: 0px;
+            }
+			#guicontainer { 
+				position: absolute; 
+				top: 2px; 
+				left: 2px 
+			}
+
+		</style>
+	</head>
+	<body>
+		<div id="guicontainer"></div>
+		<div id="infocontainer">
+			<div id="i"><img src="tex/i.png"></div>
+	        <div id="info">
+	            <p>An experiment with cross-hatching.</p>
+	            <p>The model is from <a href="http://beeple-crap.com" target="_blank">Beeple</a></p>
+				<p>The illustration is from <a href="http://bibliodyssey.blogspot.com" taget="_blank">bibliodyssey.blogspot.com</a></p>
+	            <p>Shader by Jaume Sanchez <a href="http://www.twitter.com/thespite" target="_blank" >@thespite</a></p>
+	        </div>
+	    </div>
+		<script src="js/libs/three.min.js"></script>
+		<script src="js/loaders/ColladaLoader.js"></script>
+		<script src="js/libs/dat.gui.min.js"></script>
+		<script src="js/libs/Detector.js"></script>
+		<script src="js/libs/stats.min.js"></script>
+
+        <script src="js/shaders/materials/CrossHatchMaterial.js"></script>        
+
+        <script src="js/shaders/CopyShader.js"></script>   
+        <script src="js/shaders/BrightnessContrastShader.js"></script>   
+        <script src="js/shaders/EdgeShader2.js"></script>           
+        <script src="js/shaders/MultiplyBlendShader.js"></script>
+        <script src="js/shaders/FXAAShader.js"></script>
+        <script src="js/postprocessing/EffectComposer.js"></script>
+        <script src="js/postprocessing/RenderPass.js"></script>
+        <script src="js/postprocessing/MaskPass.js"></script>
+        <script src="js/postprocessing/ShaderPass.js"></script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container, stats;
+			var camera, scene, renderer, objects;
+			var dae;
+			var CANVASW = 1280, CANVASH = 905;
+			var timer = 0;
+
+			//Apparantly this is important for FXAA 
+  			var dpr = (window.devicePixelRatio) ? window.devicePixelRatio : 1;
+
+		   //////////
+		   // PARAMETERS FOR SLIIDER
+
+			var slii = {};
+		    slii.inputs = {
+		        globalSpeed: { type: "number", label: "0. Global Speed", value: 0.2, maxValue: 2, minValue: 0.0 },
+		        zoom: { type: "number", label: "1. zoom", value: 12, maxValue: 12, minValue: 0.0 },
+            	scanlines: { type: "toggle", label: "2. scanlines", value: 0 },
+            	strobe: { type: "toggle", label: "4. Strobe", value: 0 },
+            	light: { type: "toggle", label: "5. Light", value: 1 },
+            	rotate: { type: "number", label: "6. Rotate", value: 0, minValue: -2, maxValue: 2},
+            	glow: { type: "number", label: "7. Glow", value: 0.3, minValue: 0, maxValue: 7}
+			}
+
+			// LOAD MESH
+
+			var loader = new THREE.ColladaLoader();
+			loader.options.convertUpAxis = true;
+			loader.load( './models/dirty_ribbon-standard-textured.dae', function ( collada ) {
+
+				dae = collada.scene;
+
+				dae.traverse( function ( child ) {
+
+					if ( child instanceof THREE.SkinnedMesh ) {
+
+						var animation = new THREE.Animation( child, child.geometry.animation );
+						animation.play();
+
+					}
+
+				} );
+
+				dae.scale.x = dae.scale.y = dae.scale.z = 0.017;
+				dae.position.x = 1.0;
+				dae.position.y = 1.4;
+				dae.updateMatrix();
+
+				//
+
+				init();
+				animate();
+
+			} );
+
+			// GUI
+
+	        var Settings = function() {
+	            this.ambient = 0;
+	            this.diffuse = 30;
+	            this.specular = 0;
+	            this.rim = 0;
+	            this.outline = false;
+	            this.rotateLight = false;
+	            this.rotateModel = false;
+	        };
+	        var settings = new Settings();
+	        var gui = new dat.GUI({ autoPlace: false });
+	        var customContainer = document.getElementById('guicontainer');
+			customContainer.appendChild(gui.domElement);
+	        
+	        //		
+
+			function init() {
+
+				// GUI
+
+	            gui.add( settings, 'ambient', 0.0, 100.0 );
+	            gui.add( settings, 'diffuse', 0.0, 100.0 );
+	            gui.add( settings, 'specular', 0.0, 100.0 );
+	            gui.add( settings, 'rim', 0.0, 100.0 );
+	            gui.add( settings, 'outline' );
+	            gui.add( settings, 'rotateLight' );
+	            gui.add( settings, 'rotateModel' );
+
+				//Info text
+
+				var icon = document.getElementById("i");
+				var info = document.getElementById("info");
+				icon.onclick = function() { info.style.display = info.style.display == "block" ? "none" : "block"; }
+
+				//Container for webGl
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+				container.id = "container";
+
+				//Scene
+
+				camera = new THREE.PerspectiveCamera( 45, CANVASW / CANVASH, 1, 2000 );
+				camera.position.set( 0, 0, 12 );
+
+				scene = new THREE.Scene();
+
+				// Add the COLLADA
+
+				scene.add( dae );
+
+				// Renderer
+
+				renderer = new THREE.WebGLRenderer( { alpha: true, premultipliedAlpha: false });
+				renderer.setPixelRatio( dpr );
+				renderer.setSize( CANVASW, CANVASH );
+				container.appendChild( renderer.domElement );
+
+				//Stats
+
+				stats = new Stats();
+				stats.domElement.style.position = 'absolute';
+				stats.domElement.style.top = '0px';
+				container.appendChild( stats.domElement );
+
+				//Define material
+
+		        var id = 'tex/hatch';
+
+		            hatchMat = new THREE.ShaderMaterial( {
+
+	                uniforms:       {
+	                    showOutline: { type: 'f', value: 0 },
+	                    ambientWeight: { type: 'f', value : settings.diffuse/100 },
+	                    diffuseWeight: { type: 'f', value : settings.diffuse/1000},
+	                    rimWeight: { type: 'f', value : settings.rim / 100 },
+	                    specularWeight: { type: 'f', value : settings.specular / 100},
+	                    shininess: { type: 'f', value : 1 },
+	                    invertRim: { type: 'i', value: 0 },
+	                    inkColor: { type: 'v4', value: new THREE.Vector3( 47/256, 45/256, 44/256 ) },
+	                    solidRender: { type: 'i', value: 0 },
+	                    resolution: { type: 'v2', value: new THREE.Vector2( 0, 0 ) },
+	                    bkgResolution: { type: 'v2', value: new THREE.Vector2( 3508*dpr, 2480*dpr ) },
+	                    outlineOnly: { type: 'f', value: settings.outline },
+	                    lightPosition: { type: 'v3', value: new THREE.Vector3( 400, 300, -00 ) },
+	                    hatch1: { type: 't', value: THREE.ImageUtils.loadTexture( id + '0.png' ) },
+	                    hatch2: { type: 't', value: THREE.ImageUtils.loadTexture( id + '1.png' ) },
+	                    hatch3: { type: 't', value: THREE.ImageUtils.loadTexture( id + '2.png' ) },
+	                    hatch4: { type: 't', value: THREE.ImageUtils.loadTexture( id + '3.png' ) },
+	                    hatch5: { type: 't', value: THREE.ImageUtils.loadTexture( id + '4.png' ) },
+	                    hatch6: { type: 't', value: THREE.ImageUtils.loadTexture( id + '5.png' ) },
+	                    paper: { type: 't', value: THREE.ImageUtils.loadTexture( 'tex/paper4small.jpg' ) },
+	                    repeat: { type: 'v2', value: new THREE.Vector2( 0, 0 ) }
+	                },
+	                name: "hatchMat",
+	                vertexShader:   CrossHatchMaterial.vertexShader,
+	                fragmentShader: CrossHatchMaterial.fragmentShader
+
+	            });
+
+	            hatchMat.uniforms.paper.value.generateMipmaps = false;
+	            hatchMat.uniforms.paper.value.magFilter = THREE.LinearFilter;
+	            hatchMat.uniforms.paper.value.minFilter = THREE.LinearFilter;
+	            
+	            hatchMat.uniforms.repeat.value.set( 1,1 );
+	            hatchMat.uniforms.hatch1.value.wrapS = hatchMat.uniforms.hatch1.value.wrapT = THREE.RepeatWrapping;
+	            hatchMat.uniforms.hatch2.value.wrapS = hatchMat.uniforms.hatch2.value.wrapT = THREE.RepeatWrapping;
+	            hatchMat.uniforms.hatch3.value.wrapS = hatchMat.uniforms.hatch3.value.wrapT = THREE.RepeatWrapping;
+	            hatchMat.uniforms.hatch4.value.wrapS = hatchMat.uniforms.hatch4.value.wrapT = THREE.RepeatWrapping;
+	            hatchMat.uniforms.hatch5.value.wrapS = hatchMat.uniforms.hatch5.value.wrapT = THREE.RepeatWrapping;
+	            hatchMat.uniforms.hatch6.value.wrapS = hatchMat.uniforms.hatch6.value.wrapT = THREE.RepeatWrapping;
+
+	            // Calculate normals and collect meshes in array
+
+	            meshes = [];
+
+				scene.children[0].traverse ( function(obj) {
+					if (obj.type == "Mesh") {
+						obj.geometry.computeFaceNormals();
+						obj.geometry.computeVertexNormals(); 
+						meshes.push(obj);
+					};
+				});
+
+				colorMat1 = new THREE.MeshPhongMaterial({ color: 0x000000, emissive: 0x9c5664, shininess: 1, name: "colorMat1"});
+				colorMat2 = new THREE.MeshPhongMaterial({ color: 0x000000, emissive: 0x9aa7b8, shininess: 1, name: "colorMat2"});
+				colorMat3 = new THREE.MeshPhongMaterial({ color: 0x000000, emissive: 0xb39477, shininess: 1, name: "colorMat3"});
+
+				normalMat = new THREE.MeshNormalMaterial( {name: "normalMat"});
+				normalMat.shading = THREE.FlatShading;	
+
+				// Change model colors
+
+				for (var k in meshes) {
+					if (meshes[k].material.type == "MeshFaceMaterial") {
+						for (var i in meshes[k].material.materials) {
+							meshes[k].material.materials[i].color.r = 0;
+							meshes[k].material.materials[i].color.g = 0;
+							meshes[k].material.materials[i].color.b = 0;
+							if (meshes[k].material.materials[i].emissive.r == 0.3254901960784314) {
+								meshes[k].material.materials[i] = colorMat1;
+							}								
+							if (meshes[k].material.materials[i].emissive.r == 0.6235294117647059) {
+								meshes[k].material.materials[i] = colorMat2;
+							}
+							if (meshes[k].material.materials[i].emissive.r == 0.5803921568627451) {
+								meshes[k].material.materials[i] = colorMat3;
+							}
+							if (meshes[k].material.materials[i].emissive.r == 0) {
+								meshes[k].name = "swapMaterialsFace";
+								meshes[k].material.materials[i] = hatchMat;
+							}
+						}
+					} else if (meshes[k].material.type == "MeshPhongMaterial") {
+						if (meshes[k].material.emissive.r == 0) {
+							meshes[k].name = "swapMaterials";
+							meshes[k].material = hatchMat;
+						}
+					}
+				}
+
+		       ///////// DEFINE FIRST RENDERING (cross hatch) ///////////
+
+				// Prepare the composer's render target
+				renderTargetParameters = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBAFormat };
+				renderTargetCrossHatch = new THREE.WebGLRenderTarget( CANVASW * dpr, CANVASH * dpr, renderTargetParameters );
+
+				///////////// DEFINE SECOND RENDERING (outline) /////////////
+
+				// Prepare the composer's render target
+				renderTarget = new THREE.WebGLRenderTarget( CANVASW * dpr, CANVASH * dpr, renderTargetParameters );				 
+
+				// Create the blending composer
+				blendingcomposer = new THREE.EffectComposer( renderer, renderTarget );
+				 
+				// Prepare the base scene render pass
+				var renderModel = new THREE.RenderPass( scene, camera );
+				blendingcomposer.addPass( renderModel );
+
+				var effect = new THREE.ShaderPass( THREE.EdgeShader2 );
+				effect.uniforms[ 'aspect' ].value = new THREE.Vector2( CANVASW * dpr, CANVASH * dpr);
+				blendingcomposer.addPass( effect );
+
+				var effect = new THREE.ShaderPass( THREE.BrightnessContrastShader );
+				effect.uniforms[ 'brightness' ].value = 0.4;
+				effect.uniforms[ 'contrast' ].value = 1.1;
+				blendingcomposer.addPass( effect );
+
+				MultiplyBlendShader.uniforms[ "tDiffuse2" ].value = renderTargetCrossHatch;
+				// Prepare the additive blending pass
+				var blendPass = new THREE.ShaderPass( MultiplyBlendShader );
+				// Note that the tDiffuse sampler2D will be automatically filled by the EffectComposer
+				// Make sure the additive blending is rendered to the screen (since it's the last pass)
+				blendPass.renderToScreen = true;
+				blendingcomposer.needsSwap = true;
+				blendingcomposer.addPass( blendPass );	
+			}
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				render();
+				stats.update();
+				changeColors();
+			}
+
+			var clock = new THREE.Clock();
+
+			function render() {
+
+				//Animate meshes
+
+				var speed = slii.inputs.globalSpeed.value;
+
+				scene.getObjectById(10,true).rotateX(-0.05 * speed);
+				scene.getObjectById(14,true).rotateX(-0.05 * speed);
+				scene.getObjectById(16,true).rotateX(0.06 * speed);
+				scene.getObjectById(20,true).rotateX(0.04 * speed);
+				scene.getObjectById(22,true).rotateX(-0.04 * speed);
+				scene.getObjectById(25,true).rotateX(0.03 * speed);
+				scene.getObjectById(28,true).rotateX(-0.03 * speed);
+				scene.getObjectById(31,true).rotateX(0.02 * speed);
+				scene.getObjectById(34,true).rotateX(-0.02 * speed);
+				scene.getObjectById(37,true).rotateX(0.01 * speed);
+				scene.getObjectById(40,true).rotateX(-0.01 * speed);
+				scene.getObjectById(43,true).rotateX(0.005 * speed);
+
+				if (slii.inputs.strobe.value) {
+					var stepper = Date.now() * speed % 1300;
+
+					scene.getObjectById(10,true).visible = stepper < 100 && stepper > 0 ? true: false;
+					scene.getObjectById(14,true).visible = stepper < 200 && stepper > 100 ? true: false;
+					scene.getObjectById(16,true).visible = stepper < 300 && stepper > 200 ? true: false;
+					scene.getObjectById(20,true).visible = stepper < 400 && stepper > 300 ? true: false;
+					scene.getObjectById(22,true).visible = stepper < 500 && stepper > 400 ? true: false;
+					scene.getObjectById(25,true).visible = stepper < 600 && stepper > 500 ? true: false;
+					scene.getObjectById(28,true).visible = stepper < 700 && stepper > 600 ? true: false;
+					scene.getObjectById(31,true).visible = stepper < 800 && stepper > 700 ? true: false;
+					scene.getObjectById(34,true).visible = stepper < 900 && stepper > 800 ? true: false;
+					scene.getObjectById(37,true).visible = stepper < 1000 && stepper > 900 ? true: false;
+					scene.getObjectById(40,true).visible = stepper < 1100 && stepper > 1000 ? true: false;
+					scene.getObjectById(43,true).visible = stepper < 1200 && stepper > 1100 ? true: false;
+				} else {
+					scene.children[0].traverse ( function(obj) {
+						obj.visible = true;
+					});					
+				}
+
+				// Rotate model
+
+				if (settings.rotateModel)
+					dae.rotation.y += 0.003;
+
+				//
+
+				camera.lookAt( scene.position );
+
+				//Animate light
+
+				timer += 0.005;
+
+				if (settings.rotateLight == 1.0) {
+					hatchMat.uniforms["lightPosition"].value.x = 400 * Math.sin( timer );
+					hatchMat.uniforms["lightPosition"].value.z = 400 * Math.cos( timer );
+				}
+
+				//Animate params
+
+				hatchMat.uniforms["ambientWeight"].value = settings.ambient / 100;
+				hatchMat.uniforms["diffuseWeight"].value = settings.diffuse / 1000;
+				hatchMat.uniforms["specularWeight"].value = settings.specular / 100;
+				hatchMat.uniforms["rimWeight"].value = settings.rim / 100;
+				hatchMat.uniforms["outlineOnly"].value = settings.outline;
+				
+				//Change to cross-hatch
+
+				for (var k in meshes) {
+					if (meshes[k].name == "swapMaterials") {
+						meshes[k].material = hatchMat;
+					}
+					else if (meshes[k].name == "swapMaterialsFace") {
+						for (var i in meshes[k].material.materials) {
+							meshes[k].material.materials[i] = meshes[k].material.materials[i].name == "normalMat" ? hatchMat: meshes[k].material.materials[i];
+						}
+					}
+				};
+
+				//Do first render (cross-hatch)
+				
+				renderer.render(scene, camera, renderTargetCrossHatch);
+
+				// Set normal material for outline render
+
+				for (var k in meshes) {
+					if (meshes[k].material == hatchMat) {
+						meshes[k].material = normalMat;
+					}
+					else if (meshes[k].name == "swapMaterialsFace") {
+						for (var i in meshes[k].material.materials) {
+							meshes[k].material.materials[i] = meshes[k].material.materials[i].name == "hatchMat" ? normalMat: meshes[k].material.materials[i];						}
+					}
+				};
+
+				//Do second render (outline effect)
+
+				blendingcomposer.render();
+			}
+
+			function changeColors() {
+
+				//Stats colors
+
+				document.getElementById("fps").style.backgroundColor = "rgb(19, 18, 13)";
+				document.getElementById("fpsText").style.color = "rgb(220, 215, 204)";
+				document.getElementById("fpsGraph").style.backgroundColor = "rgb(220, 215, 204)";
+
+				var graphs = document.getElementById("fpsGraph").children;
+				for (var i in graphs) {
+					if (graphs[i].style)
+						graphs[i].style.backgroundColor = "rgb(19, 18, 13)";
+				}
+
+				// GUI colors
+
+				var sliders = document.getElementsByClassName("slider-fg");
+				for (var i in sliders) {
+					if (sliders[i].style)
+						sliders[i].style.background = "#9c5664";
+				}
+			}
+
+		</script>
+	</body>
+</html>
