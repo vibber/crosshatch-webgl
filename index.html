@@ -19,6 +19,13 @@
 				margin-left: auto ;
 				margin-right: auto ;
 			}
+			#wait {
+		        position: absolute;
+		        top: 50%;
+		        left: 50%;
+		        margin-right: -50%;
+		        transform: translate(-50%, -50%);			
+			}
 			#container {
 				background-image: url( tex/biblio2.jpg );
 				background-repeat: no-repeat;
@@ -58,6 +65,7 @@
 		</style>
 	</head>
 	<body>
+		<div id="wait"><img src="tex/wait.gif"></div>
 		<div id="guicontainer"></div>
 		<div id="infocontainer">
 			<div id="i"><img src="tex/i.png"></div>
@@ -136,6 +144,10 @@
 				dae.position.x = 1.0;
 				dae.position.y = 1.4;
 				dae.updateMatrix();
+
+				// Hide wait icon
+
+				document.getElementById("wait").style.display = "none";
 
 				//
 
